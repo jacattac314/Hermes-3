@@ -1,0 +1,27 @@
+[project]
+name = "hermes2-bootstrap"
+version = "0.1.0"
+description = "Repo-local Hermes 2.0 workflow bootstrap for macOS."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "anthropic>=0.86.0",
+  "python-dotenv>=1.2.1",
+  "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+hermes2 = "hermes2.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

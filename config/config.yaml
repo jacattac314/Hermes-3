@@ -1,0 +1,53 @@
+version: 1
+
+system:
+  name: hermes2-macos
+  mode: local_first
+  environment: development
+  timezone: America/Chicago
+
+paths:
+  hermes_home: ~/.hermes
+  log_dir: ~/.hermes/logs/hermes2
+  report_dir: ~/.hermes/logs/hermes2/reports
+
+runtime:
+  local_base_url: http://127.0.0.1:1234/v1
+  preferred_local_model: qwen2.5-coder-1.5b-instruct
+  request_timeout_seconds: 300
+  command_timeout_seconds: 300
+  default_temperature: 0.2
+  default_max_tokens: 512
+  workspace_allowed_paths:
+    - "~"
+
+models:
+  local_worker:
+    provider: lmstudio
+    model: auto
+    base_url: http://127.0.0.1:1234/v1
+    api_key_env: LMSTUDIO_API_KEY
+
+  openai_fallback:
+    provider: openai
+    model: gpt-5.4-mini
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+
+  anthropic_reasoning:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    api_key_env: ANTHROPIC_API_KEY
+
+approval_rules:
+  always_require_approval:
+    - git push
+    - rm -rf
+    - sudo
+    - chmod -R
+    - docker system prune
+    - curl -X POST
+
+observability:
+  emit_jsonl: true
+  emit_markdown_report: true

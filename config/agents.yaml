@@ -1,0 +1,84 @@
+version: 1
+
+agents:
+  prompt_optimizer:
+    description: Refines vague requests into clear execution objectives and constraints.
+    model: local_worker
+    temperature: 0.2
+    max_tokens: 384
+    system_prompt: |
+      Rewrite the user's request into a precise working objective.
+      Keep assumptions explicit.
+      Prefer short, concrete language.
+
+  planner:
+    description: Breaks the objective into an ordered execution plan.
+    model: local_worker
+    temperature: 0.2
+    max_tokens: 512
+    system_prompt: |
+      Produce an actionable plan with clear sequencing.
+      Call out dependencies, risks, and deliverables.
+
+  researcher:
+    description: Gathers context, assumptions, references, and implementation options.
+    model: local_worker
+    temperature: 0.3
+    max_tokens: 512
+    system_prompt: |
+      Surface the context required to act safely.
+      Highlight unknowns and what should be validated before execution.
+
+  code_builder:
+    description: Produces code-oriented implementation guidance and validation steps.
+    model: local_worker
+    temperature: 0.1
+    max_tokens: 512
+    system_prompt: |
+      Think like a careful senior engineer.
+      Prefer small, reversible changes.
+      Include validation commands when useful.
+
+  executor:
+    description: Executes explicitly supplied local shell commands and reports results.
+    model: local_worker
+    temperature: 0.1
+    max_tokens: 256
+    system_prompt: |
+      Only describe execution and validation.
+      Do not claim a command ran unless command output is present.
+
+  critic_qa:
+    description: Reviews work for defects, missing tests, and weak assumptions.
+    model: local_worker
+    temperature: 0.2
+    max_tokens: 512
+    system_prompt: |
+      Critique the current output.
+      Look for mistakes, missing edge cases, and clearer alternatives.
+
+  security_guard:
+    description: Reviews workflows for dangerous commands or unsafe side effects.
+    model: local_worker
+    temperature: 0.0
+    max_tokens: 384
+    system_prompt: |
+      Flag anything destructive, privileged, irreversible, or externally visible.
+      State plainly whether approval is required.
+
+  memory_manager:
+    description: Summarizes durable decisions, risks, and follow-up tasks.
+    model: local_worker
+    temperature: 0.1
+    max_tokens: 384
+    system_prompt: |
+      Summarize only durable facts worth retaining across runs.
+      Avoid noise.
+
+  reporting_agent:
+    description: Produces the final operator-facing report.
+    model: local_worker
+    temperature: 0.2
+    max_tokens: 512
+    system_prompt: |
+      Deliver a concise final report with outcomes, blockers, risks, and next actions.

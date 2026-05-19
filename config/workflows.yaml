@@ -1,0 +1,40 @@
+version: 1
+
+workflows:
+  default_task:
+    description: General problem-solving and research workflow.
+    steps:
+      - agent: prompt_optimizer
+        action: refine objective and constraints
+      - agent: planner
+        action: create execution plan
+      - agent: security_guard
+        action: classify risk and approval needs
+      - agent: researcher
+        action: gather context and assumptions
+      - agent: critic_qa
+        action: critique plan and fill gaps
+      - agent: memory_manager
+        action: identify durable notes
+      - agent: reporting_agent
+        action: produce final operator report
+
+  code_build:
+    description: Code-oriented workflow with validation commands.
+    steps:
+      - agent: prompt_optimizer
+        action: refine coding task
+      - agent: planner
+        action: plan safe implementation order
+      - agent: security_guard
+        action: classify risk and approval needs
+      - agent: researcher
+        action: gather repo and implementation context
+      - agent: code_builder
+        action: propose implementation and tests
+      - agent: executor
+        action: run explicitly supplied validation commands
+      - agent: critic_qa
+        action: review outputs and test results
+      - agent: reporting_agent
+        action: produce final operator report
