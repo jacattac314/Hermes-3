@@ -10,7 +10,7 @@ from typing import Any
 from hermes2.approvals import is_risky_command
 from hermes2.config import ConfigBundle, ConfigError, validate_workspace
 from hermes2.llm import LLMError, invoke_model
-from hermes2.models import ModelFetcher, effective_model_config, fetch_openai_models
+from hermes2.models import ModelFetcher, effective_model_chain, fetch_openai_models, validate_profile_workflow
 from hermes2.runlog import RunLogger
 
 
@@ -161,11 +161,13 @@ def run_workflow(
     bypass_approvals: bool,
     logger: RunLogger,
     fetcher: ModelFetcher = fetch_openai_models,
+    profile_name: str = "default",
 ) -> WorkflowRunResult:
     workflows = bundle.workflows["workflows"]
     agents = bundle.agents["agents"]
     if workflow_name not in workflows:
         raise ConfigError(f"unknown workflow: {workflow_name}")
+    validate_profile_workflow(bundle.config, profile_name, workflow_name)
 
     resolved_workspace = validate_workspace(bundle.config, workspace or Path.cwd())
     workflow = workflows[workflow_name]
@@ -178,6 +180,7 @@ def run_workflow(
         {
             "type": "run_start",
             "workflow": workflow_name,
+            "profile": profile_name,
             "workspace": str(resolved_workspace),
             "commands": commands,
         }
@@ -187,20 +190,29 @@ def run_workflow(
         agent_name = step["agent"]
         action = step.get("action", agent_name)
         agent_cfg = agents[agent_name]
-        model_cfg = effective_model_config(str(agent_cfg["model"]), bundle.config, fetcher=fetcher)
-        resolution = model_cfg.get("_resolution")
-        if resolution:
-            logger.write(
-                {
-                    "type": "model_resolution",
-                    "agent": agent_name,
-                    "provider": resolution.provider,
-                    "model": resolution.model,
-                    "base_url": resolution.base_url,
-                    "reason": resolution.reason,
-                    "rejected_candidates": resolution.rejected_candidates,
-                }
-            )
+        candidates, skipped_candidates = effective_model_chain(
+            primary_alias=str(agent_cfg["model"]),
+            config=bundle.config,
+            profile_name=profile_name,
+            fetcher=fetcher,
+        )
+        logger.write(
+            {
+                "type": "model_candidates",
+                "agent": agent_name,
+                "profile": profile_name,
+                "candidates": [
+                    {
+                        "alias": candidate.alias,
+                        "provider": candidate.config.get("provider"),
+                        "model": candidate.config.get("model"),
+                        "base_url": candidate.config.get("base_url"),
+                    }
+                    for candidate in candidates
+                ],
+                "skipped": skipped_candidates,
+            }
+        )
 
         prompt = build_prompt(
             agent_name=agent_name,
@@ -219,18 +231,38 @@ def run_workflow(
                 "type": "agent_start",
                 "agent": agent_name,
                 "action": action,
-                "provider": model_cfg.get("provider"),
-                "model": model_cfg.get("model"),
+                "provider": candidates[0].config.get("provider"),
+                "model": candidates[0].config.get("model"),
             }
         )
+        output = ""
+        selected_model = None
         try:
-            output = invoke_model(
-                model_cfg=model_cfg,
-                prompt=prompt,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                timeout=timeout,
-            )
+            for candidate in candidates:
+                try:
+                    output = invoke_model(
+                        model_cfg=candidate.config,
+                        prompt=prompt,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        timeout=timeout,
+                    )
+                    selected_model = candidate
+                    break
+                except LLMError as exc:
+                    logger.write(
+                        {
+                            "type": "agent_model_error",
+                            "agent": agent_name,
+                            "action": action,
+                            "alias": candidate.alias,
+                            "provider": candidate.config.get("provider"),
+                            "model": candidate.config.get("model"),
+                            "error": str(exc),
+                        }
+                    )
+            if selected_model is None:
+                raise LLMError("all model candidates failed")
         except LLMError as exc:
             status = "failed"
             exit_code = 4
@@ -241,8 +273,8 @@ def run_workflow(
                     "type": "agent_error",
                     "agent": agent_name,
                     "action": action,
-                    "provider": model_cfg.get("provider"),
-                    "model": model_cfg.get("model"),
+                    "provider": candidates[0].config.get("provider"),
+                    "model": candidates[0].config.get("model"),
                     "error": str(exc),
                 }
             )
@@ -253,8 +285,9 @@ def run_workflow(
                 "type": "agent_step",
                 "agent": agent_name,
                 "action": action,
-                "provider": model_cfg.get("provider"),
-                "model": model_cfg.get("model"),
+                "alias": selected_model.alias,
+                "provider": selected_model.config.get("provider"),
+                "model": selected_model.config.get("model"),
                 "output": output,
             }
         )

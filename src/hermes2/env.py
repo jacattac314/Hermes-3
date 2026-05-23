@@ -11,8 +11,13 @@ from hermes2.config import hermes_home
 SECRET_KEYS = (
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
     "LMSTUDIO_API_KEY",
     "OLLAMA_API_KEY",
+    "HERMES2_TEAMS_OUTGOING_SECRET",
+    "HERMES2_MOBILE_TOKEN",
+    "HERMES2_NTFY_TOPIC",
+    "HERMES2_NTFY_TOKEN",
 )
 
 

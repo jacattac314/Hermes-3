@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib import resources
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import yaml
 
@@ -12,38 +13,56 @@ class ConfigError(ValueError):
     """Raised when a Hermes 2.0 config file is missing or invalid."""
 
 
+class ReadablePath(Protocol):
+    def exists(self) -> bool: ...
+    def open(self, mode: str = "r", encoding: str | None = None): ...
+
+
 @dataclass(frozen=True)
 class ConfigBundle:
     config: dict[str, Any]
     agents: dict[str, Any]
     workflows: dict[str, Any]
-    config_path: Path
-    agents_path: Path
-    workflows_path: Path
+    config_path: Path | ReadablePath
+    agents_path: Path | ReadablePath
+    workflows_path: Path | ReadablePath
     repo_root: Path
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    cwd = Path.cwd().resolve()
+    if (cwd / "pyproject.toml").exists() and (cwd / "config" / "config.yaml").exists():
+        return cwd
+    source_root = Path(__file__).resolve().parents[2]
+    if (source_root / "pyproject.toml").exists() and (source_root / "config" / "config.yaml").exists():
+        return source_root
+    return cwd
+
+
+def _default_resource(name: str):
+    return resources.files("hermes2.defaults").joinpath(name)
 
 
 def default_config_path() -> Path:
-    return repo_root() / "config" / "config.yaml"
+    candidate = repo_root() / "config" / "config.yaml"
+    return candidate if candidate.exists() else _default_resource("config.yaml")
 
 
 def default_agents_path() -> Path:
-    return repo_root() / "config" / "agents.yaml"
+    candidate = repo_root() / "config" / "agents.yaml"
+    return candidate if candidate.exists() else _default_resource("agents.yaml")
 
 
 def default_workflows_path() -> Path:
-    return repo_root() / "config" / "workflows.yaml"
+    candidate = repo_root() / "config" / "workflows.yaml"
+    return candidate if candidate.exists() else _default_resource("workflows.yaml")
 
 
 def expand_path(value: str | os.PathLike[str]) -> Path:
     return Path(os.path.expandvars(os.path.expanduser(str(value)))).resolve()
 
 
-def load_yaml(path: Path) -> dict[str, Any]:
+def load_yaml(path: Path | ReadablePath) -> dict[str, Any]:
     if not path.exists():
         raise ConfigError(f"Missing config file: {path}")
     with path.open("r", encoding="utf-8") as handle:
@@ -103,6 +122,96 @@ def validate_bundle(bundle: ConfigBundle) -> None:
             raise ConfigError(f"model alias {alias!r} must define provider")
         if not model.get("model"):
             raise ConfigError(f"model alias {alias!r} must define model")
+
+    chains = config.get("model_chains") or {}
+    if chains and not isinstance(chains, dict):
+        raise ConfigError("model_chains must be a mapping")
+    for chain_name, aliases in chains.items():
+        if not isinstance(aliases, list) or not aliases:
+            raise ConfigError(f"model chain {chain_name!r} must be a non-empty list")
+        for alias in aliases:
+            if alias not in models:
+                raise ConfigError(f"model chain {chain_name!r} references unknown model alias {alias!r}")
+
+    profiles = config.get("profiles") or {}
+    if profiles and not isinstance(profiles, dict):
+        raise ConfigError("profiles must be a mapping")
+    for profile_name, profile in profiles.items():
+        if not isinstance(profile, dict):
+            raise ConfigError(f"profile {profile_name!r} must be a mapping")
+        chain = profile.get("model_chain")
+        if isinstance(chain, str) and chain not in chains:
+            raise ConfigError(f"profile {profile_name!r} references unknown model chain {chain!r}")
+        if isinstance(chain, list):
+            for alias in chain:
+                if alias not in models:
+                    raise ConfigError(f"profile {profile_name!r} references unknown model alias {alias!r}")
+        profile_workflows = profile.get("workflows") or []
+        if profile_workflows and not isinstance(profile_workflows, list):
+            raise ConfigError(f"profile {profile_name!r} workflows must be a list")
+        for workflow_name in profile_workflows:
+            if workflow_name not in workflows:
+                raise ConfigError(f"profile {profile_name!r} references unknown workflow {workflow_name!r}")
+
+    tools = config.get("tools") or {}
+    if tools and not isinstance(tools, dict):
+        raise ConfigError("tools must be a mapping")
+    for tool_name, tool in tools.items():
+        if not isinstance(tool, dict):
+            raise ConfigError(f"tool {tool_name!r} must be a mapping")
+        if "enabled" in tool and not isinstance(tool["enabled"], bool):
+            raise ConfigError(f"tool {tool_name!r} enabled must be boolean")
+        if "adapter" in tool and not isinstance(tool["adapter"], str):
+            raise ConfigError(f"tool {tool_name!r} adapter must be a string")
+        if tool.get("adapter") == "mcp_stdio" and not isinstance(tool.get("command"), str):
+            raise ConfigError(f"tool {tool_name!r} mcp_stdio adapter requires command")
+        if "args" in tool and not isinstance(tool["args"], list):
+            raise ConfigError(f"tool {tool_name!r} args must be a list")
+        for arg in tool.get("args") or []:
+            if not isinstance(arg, str):
+                raise ConfigError(f"tool {tool_name!r} args values must be strings")
+        if "cwd" in tool and not isinstance(tool["cwd"], str):
+            raise ConfigError(f"tool {tool_name!r} cwd must be a string")
+        if "transport" in tool and not isinstance(tool["transport"], str):
+            raise ConfigError(f"tool {tool_name!r} transport must be a string")
+        actions = tool.get("actions") or []
+        if not isinstance(actions, list):
+            raise ConfigError(f"tool {tool_name!r} actions must be a list")
+        for action in actions:
+            if not isinstance(action, str):
+                raise ConfigError(f"tool {tool_name!r} action values must be strings")
+
+    teams = config.get("teams") or {}
+    if teams and not isinstance(teams, dict):
+        raise ConfigError("teams must be a mapping")
+    if "enabled" in teams and not isinstance(teams["enabled"], bool):
+        raise ConfigError("teams enabled must be boolean")
+    if "endpoint" in teams and not isinstance(teams["endpoint"], str):
+        raise ConfigError("teams endpoint must be a string")
+    if "profile" in teams and teams["profile"] not in profiles:
+        raise ConfigError(f"teams profile references unknown profile {teams['profile']!r}")
+    if "allow_unsigned_dev_requests" in teams and not isinstance(teams["allow_unsigned_dev_requests"], bool):
+        raise ConfigError("teams allow_unsigned_dev_requests must be boolean")
+
+    mobile = config.get("mobile") or {}
+    if mobile and not isinstance(mobile, dict):
+        raise ConfigError("mobile must be a mapping")
+    if "enabled" in mobile and not isinstance(mobile["enabled"], bool):
+        raise ConfigError("mobile enabled must be boolean")
+    if "path" in mobile and not isinstance(mobile["path"], str):
+        raise ConfigError("mobile path must be a string")
+    if "token_env" in mobile and not isinstance(mobile["token_env"], str):
+        raise ConfigError("mobile token_env must be a string")
+    if "require_token" in mobile and not isinstance(mobile["require_token"], bool):
+        raise ConfigError("mobile require_token must be boolean")
+    ntfy = mobile.get("ntfy") or {}
+    if ntfy and not isinstance(ntfy, dict):
+        raise ConfigError("mobile ntfy must be a mapping")
+    if "enabled" in ntfy and not isinstance(ntfy["enabled"], bool):
+        raise ConfigError("mobile ntfy enabled must be boolean")
+    for key in ("server", "topic_env", "token_env"):
+        if key in ntfy and not isinstance(ntfy[key], str):
+            raise ConfigError(f"mobile ntfy {key} must be a string")
 
     for name, agent in agents.items():
         if not isinstance(agent, dict):

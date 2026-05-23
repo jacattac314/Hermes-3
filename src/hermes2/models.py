@@ -22,6 +22,12 @@ class ModelResolution:
     rejected_candidates: list[str]
 
 
+@dataclass(frozen=True)
+class ModelCandidate:
+    alias: str
+    config: dict[str, Any]
+
+
 ModelFetcher = Callable[[str, float], list[str]]
 
 
@@ -178,4 +184,102 @@ def effective_model_config(
         model_cfg["model"] = resolution.model
         model_cfg["base_url"] = resolution.base_url
         model_cfg["_resolution"] = resolution
+    model_cfg["_alias"] = alias
     return model_cfg
+
+
+def profile_config(config: dict[str, Any], profile_name: str) -> dict[str, Any]:
+    profiles = config.get("profiles") or {}
+    if not profiles and profile_name == "default":
+        return {"description": "Default profile", "model_chain": ["local_worker"]}
+    if profile_name not in profiles:
+        raise ModelResolutionError(f"unknown profile: {profile_name}")
+    return dict(profiles[profile_name])
+
+
+def validate_profile_workflow(config: dict[str, Any], profile_name: str, workflow_name: str) -> None:
+    profile = profile_config(config, profile_name)
+    workflows = profile.get("workflows") or []
+    if workflows and workflow_name not in workflows:
+        allowed = ", ".join(str(item) for item in workflows)
+        raise ModelResolutionError(
+            f"profile {profile_name!r} does not allow workflow {workflow_name!r}; allowed workflows: {allowed}"
+        )
+
+
+def profile_model_aliases(
+    config: dict[str, Any],
+    profile_name: str = "default",
+    *,
+    primary_alias: str | None = None,
+) -> list[str]:
+    profile = profile_config(config, profile_name)
+    chain_value = profile.get("model_chain") or ["local_worker"]
+    if isinstance(chain_value, str):
+        chains = config.get("model_chains") or {}
+        if chain_value not in chains:
+            raise ModelResolutionError(f"profile {profile_name!r} references unknown model chain {chain_value!r}")
+        aliases = list(chains[chain_value])
+    elif isinstance(chain_value, list):
+        aliases = list(chain_value)
+    else:
+        raise ModelResolutionError(f"profile {profile_name!r} has invalid model_chain")
+
+    ordered: list[str] = []
+    if primary_alias:
+        ordered.append(primary_alias)
+    ordered.extend(str(alias) for alias in aliases)
+    deduped: list[str] = []
+    for alias in ordered:
+        if alias not in deduped:
+            deduped.append(alias)
+    return deduped
+
+
+def provider_has_credentials(model_cfg: dict[str, Any], env: dict[str, str] | None = None) -> tuple[bool, str]:
+    env = env or os.environ
+    provider = str(model_cfg.get("provider") or "").lower()
+    if provider in {"lmstudio", "ollama", "local"}:
+        return True, ""
+    default_key_env = {
+        "openai": "OPENAI_API_KEY",
+        "google": "GEMINI_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+    }.get(provider, "ANTHROPIC_API_KEY")
+    api_key_env = str(model_cfg.get("api_key_env") or default_key_env)
+    if env.get(api_key_env):
+        return True, ""
+    return False, f"{api_key_env} is not set"
+
+
+def effective_model_chain(
+    *,
+    primary_alias: str,
+    config: dict[str, Any],
+    profile_name: str = "default",
+    fetcher: ModelFetcher = fetch_openai_models,
+    env: dict[str, str] | None = None,
+) -> tuple[list[ModelCandidate], list[str]]:
+    aliases = profile_model_aliases(config, profile_name, primary_alias=primary_alias)
+    candidates: list[ModelCandidate] = []
+    skipped: list[str] = []
+    models = config.get("models") or {}
+    for alias in aliases:
+        if alias not in models:
+            skipped.append(f"{alias}: unknown model alias")
+            continue
+        ready, reason = provider_has_credentials(models[alias], env=env)
+        if not ready:
+            skipped.append(f"{alias}: {reason}")
+            continue
+        try:
+            model_cfg = effective_model_config(alias, config, fetcher=fetcher)
+        except ModelResolutionError as exc:
+            skipped.append(f"{alias}: {exc}")
+            continue
+        candidates.append(ModelCandidate(alias=alias, config=model_cfg))
+    if not candidates:
+        detail = "; ".join(skipped) if skipped else "no candidate aliases configured"
+        raise ModelResolutionError(f"no usable model candidates for profile {profile_name!r}: {detail}")
+    return candidates, skipped

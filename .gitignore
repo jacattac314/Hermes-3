@@ -3,7 +3,12 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.pyc
+*.tsbuildinfo
 .env
 dist/
 build/
 *.egg-info/
+frontend/node_modules/
+frontend/dist/
+frontend/vite.config.d.ts
+frontend/vite.config.js
