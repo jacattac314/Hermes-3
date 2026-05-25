@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -11,6 +11,7 @@ import {
   KeyRound,
   Lock,
   Mic,
+  MicOff,
   MousePointerClick,
   MessageSquare,
   PlaySquare,
@@ -203,6 +204,8 @@ function App() {
   const [mobileInfo, setMobileInfo] = useState<MobileInfo | null>(null);
   const [mobileToken, setMobileToken] = useState(() => localStorage.getItem("hermes2_mobile_token") || "");
   const [voiceState, setVoiceState] = useState("");
+  const [voiceMode, setVoiceMode] = useState(false);
+  const voiceModeRef = useRef(false);
   const mobileMode = useMemo(() => window.location.pathname.startsWith("/mobile"), []);
 
   const selectedModel = models?.candidates[0] || health?.models?.candidates[0];
@@ -305,9 +308,7 @@ function App() {
     setWorkflow(profile === "code" ? "code_build" : "default_task");
   }, [profile]);
 
-  async function sendChat(event: FormEvent) {
-    event.preventDefault();
-    const message = chatInput.trim();
+  async function sendChatMessage(message: string, autoSpeak: boolean) {
     if (!message) return;
     setBusy(true);
     setError("");
@@ -321,15 +322,38 @@ function App() {
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || `chat returned ${res.status}`);
+      const responseText: string = payload.response;
       setChatLog((items) => [
         ...items,
-        { role: "hermes", text: payload.response, model: payload.selected_model?.model },
+        { role: "hermes", text: responseText, model: payload.selected_model?.model },
       ]);
+      if (autoSpeak && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(responseText);
+        utterance.rate = 0.96;
+        utterance.onend = () => {
+          if (voiceModeRef.current) {
+            startVoiceInput();
+          } else {
+            setVoiceState("");
+          }
+        };
+        setVoiceState("Speaking...");
+        window.speechSynthesis.speak(utterance);
+      }
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "chat failed");
+      setVoiceState(exc instanceof Error ? exc.message : "chat failed");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function sendChat(event: FormEvent) {
+    event.preventDefault();
+    const message = chatInput.trim();
+    if (!message) return;
+    await sendChatMessage(message, voiceModeRef.current);
   }
 
   async function runWorkflow(event: FormEvent) {
@@ -402,12 +426,32 @@ function App() {
     recognition.lang = "en-US";
     recognition.onresult = (event) => {
       const transcript = event.results[0]?.[0]?.transcript || "";
-      if (transcript) setChatInput((current) => `${current}${current ? " " : ""}${transcript}`);
-      setVoiceState("Captured");
+      if (transcript) {
+        setChatInput(transcript);
+        setVoiceState("Captured");
+        void sendChatMessage(transcript, true);
+      } else {
+        setVoiceState("Nothing captured");
+      }
     };
-    recognition.onerror = () => setVoiceState("Voice capture failed");
-    setVoiceState("Listening");
+    recognition.onerror = () => {
+      setVoiceState("Voice capture failed");
+    };
+    setVoiceState("Listening...");
     recognition.start();
+  }
+
+  function toggleVoiceMode() {
+    const next = !voiceModeRef.current;
+    voiceModeRef.current = next;
+    setVoiceMode(next);
+    if (next) {
+      setVoiceState("Voice mode — speak now");
+      startVoiceInput();
+    } else {
+      window.speechSynthesis?.cancel();
+      setVoiceState("");
+    }
   }
 
   function speakLatestHermesMessage() {
@@ -435,7 +479,9 @@ function App() {
         mobileToken={mobileToken}
         setMobileToken={setMobileToken}
         voiceState={voiceState}
+        voiceMode={voiceMode}
         startVoiceInput={startVoiceInput}
+        toggleVoiceMode={toggleVoiceMode}
         speakLatestHermesMessage={speakLatestHermesMessage}
         profile={profile}
         setProfile={setProfile}
@@ -524,7 +570,9 @@ function App() {
                   busy={busy}
                   selectedModel={selectedModel}
                   voiceState={voiceState}
+                  voiceMode={voiceMode}
                   startVoiceInput={startVoiceInput}
+                  toggleVoiceMode={toggleVoiceMode}
                   speakLatestHermesMessage={speakLatestHermesMessage}
                 />
               )}
@@ -608,7 +656,9 @@ function MobileAppView({
   mobileToken,
   setMobileToken,
   voiceState,
+  voiceMode,
   startVoiceInput,
+  toggleVoiceMode,
   speakLatestHermesMessage,
   profile,
   setProfile,
@@ -637,7 +687,9 @@ function MobileAppView({
   mobileToken: string;
   setMobileToken: (value: string) => void;
   voiceState: string;
+  voiceMode: boolean;
   startVoiceInput: () => void;
+  toggleVoiceMode: () => void;
   speakLatestHermesMessage: () => void;
   profile: string;
   setProfile: (value: string) => void;
@@ -740,9 +792,14 @@ function MobileAppView({
             rows={3}
           />
           <div className="voice-row">
-            <button type="button" onClick={startVoiceInput} aria-label="Voice input">
-              <Mic size={18} />
-              <span>{voiceState || "Speak"}</span>
+            <button
+              type="button"
+              onClick={toggleVoiceMode}
+              aria-label={voiceMode ? "Stop voice mode" : "Start voice mode"}
+              className={voiceMode ? "voice-active" : ""}
+            >
+              {voiceMode ? <MicOff size={18} /> : <Mic size={18} />}
+              <span>{voiceState || (voiceMode ? "Listening..." : "Speak")}</span>
             </button>
             <button type="button" onClick={speakLatestHermesMessage} aria-label="Read response">
               <Volume2 size={18} />
@@ -870,7 +927,9 @@ function ChatView({
   busy,
   selectedModel,
   voiceState,
+  voiceMode,
   startVoiceInput,
+  toggleVoiceMode,
   speakLatestHermesMessage,
 }: {
   chatLog: ChatEntry[];
@@ -880,9 +939,12 @@ function ChatView({
   busy: boolean;
   selectedModel?: ModelCandidate;
   voiceState: string;
+  voiceMode: boolean;
   startVoiceInput: () => void;
+  toggleVoiceMode: () => void;
   speakLatestHermesMessage: () => void;
 }) {
+  const isListening = voiceState === "Listening...";
   return (
     <div className="stack chat-view">
       <div className="model-strip">
@@ -902,21 +964,33 @@ function ChatView({
         <input
           value={chatInput}
           onChange={(event) => setChatInput(event.target.value)}
-          placeholder="Ask Hermes2"
+          placeholder={voiceMode ? "Speak or type..." : "Ask Hermes2"}
         />
-        <button type="button" onClick={startVoiceInput} aria-label="Speak to Hermes2" title="Speak">
-          <Mic size={18} />
+        <button
+          type="button"
+          onClick={toggleVoiceMode}
+          aria-label={voiceMode ? "Stop voice conversation" : "Start voice conversation"}
+          title={voiceMode ? "Voice mode on — click to stop" : "Start voice conversation"}
+          className={voiceMode ? "voice-active" : ""}
+        >
+          {voiceMode ? <MicOff size={18} /> : <Mic size={18} />}
         </button>
-        <button type="button" onClick={speakLatestHermesMessage} aria-label="Read latest Hermes2 response" title="Read">
-          <Volume2 size={18} />
+        <button
+          type="button"
+          onClick={voiceMode ? startVoiceInput : speakLatestHermesMessage}
+          aria-label={voiceMode ? "Listen now" : "Read latest response"}
+          title={voiceMode ? "Listen now" : "Read latest response"}
+          className={isListening ? "voice-listening" : ""}
+        >
+          {voiceMode ? <Mic size={18} /> : <Volume2 size={18} />}
         </button>
         <button disabled={busy} aria-label="Send">
           <Send size={18} />
         </button>
       </form>
       {voiceState && (
-        <div className="voice-status">
-          <Mic size={14} />
+        <div className={`voice-status${isListening ? " listening" : ""}`}>
+          {isListening ? <MicOff size={14} /> : <Mic size={14} />}
           <span>{voiceState}</span>
         </div>
       )}

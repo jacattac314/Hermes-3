@@ -549,6 +549,36 @@ button {
   font-weight: 850;
 }
 
+@keyframes voice-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.voice-status.listening {
+  border-color: #c94a4a;
+  color: #c94a4a;
+  background: #fff1f1;
+  animation: voice-pulse 1.2s ease-in-out infinite;
+}
+
+.composer button[type="button"].voice-active {
+  border-color: #1d6871;
+  color: #ffffff;
+  background: #1d6871;
+}
+
+.composer button[type="button"].voice-listening {
+  border-color: #c94a4a;
+  color: #c94a4a;
+  background: #fff1f1;
+}
+
+.voice-row button.voice-active {
+  border-color: #1d6871;
+  color: #ffffff;
+  background: #1d6871;
+}
+
 .control-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
