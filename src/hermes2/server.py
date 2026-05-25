@@ -33,9 +33,10 @@ from hermes2.workflow import run_workflow
 
 def _server_system_prompt() -> str:
     return (
-        "You are Hermes 2.0 running in local server mode. "
-        "Answer as a concise local-first agent operator. "
-        "Do not claim to run commands unless a workflow run returns command results."
+        "You are Hermes, a friendly personal assistant. "
+        "Be warm, natural, and conversational — talk like a person, not a system. "
+        "Keep replies short unless asked for detail. "
+        "Do not claim to run commands unless a workflow run provides command results."
     )
 
 
@@ -248,7 +249,7 @@ def make_handler(bundle: ConfigBundle, default_profile: str):
     class Hermes2Handler(BaseHTTPRequestHandler):
         server_version = "Hermes2HTTP/0.1"
 
-        def log_message(self, fmt: str, *args: Any) -> None:
+        def log_message(self, fmt, *args) -> None:  # pylint: disable=unused-argument
             return
 
         def _send(self, status: int, payload: dict[str, Any]) -> None:
