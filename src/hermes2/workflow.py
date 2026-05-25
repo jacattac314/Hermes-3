@@ -120,6 +120,7 @@ def run_commands(
                 text=True,
                 capture_output=True,
                 timeout=timeout,
+                check=False,
             )
             result = {
                 "command": command,

@@ -45,6 +45,7 @@ def command_version(command: str, timeout: int = 10) -> str:
             text=True,
             capture_output=True,
             timeout=timeout,
+            check=False,
         )
     except Exception as exc:  # pragma: no cover - defensive status output
         return f"{path} ({exc})"
@@ -107,7 +108,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     local_cfg = (bundle.config.get("models") or {}).get("local_worker") or {}
     try:
         resolution = resolve_local_model(bundle.config, local_cfg, timeout=2)
-        print(f"LM Studio/OpenAI-compatible server: reachable")
+        print("LM Studio/OpenAI-compatible server: reachable")
         print(f"Selected local model: {resolution.model}")
         print(f"Selection reason: {resolution.reason}")
         if resolution.rejected_candidates:

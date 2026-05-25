@@ -1,0 +1,24 @@
+[MESSAGES CONTROL]
+# Stylistic choices appropriate for this codebase
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    line-too-long,
+    duplicate-code,
+    too-many-locals,
+    too-many-branches,
+    too-many-statements,
+    too-many-arguments,
+    too-many-return-statements,
+    broad-exception-caught,
+    arguments-differ,
+    useless-return,
+    consider-using-with,
+    invalid-name,
+    import-outside-toplevel,
+    use-sequence-for-iteration,
+    use-implicit-booleaness-not-comparison
+
+[FORMAT]
+max-line-length=130

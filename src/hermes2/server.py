@@ -248,7 +248,7 @@ def make_handler(bundle: ConfigBundle, default_profile: str):
     class Hermes2Handler(BaseHTTPRequestHandler):
         server_version = "Hermes2HTTP/0.1"
 
-        def log_message(self, fmt: str, *args: Any) -> None:
+        def log_message(self, fmt, *args) -> None:  # pylint: disable=unused-argument
             return
 
         def _send(self, status: int, payload: dict[str, Any]) -> None:

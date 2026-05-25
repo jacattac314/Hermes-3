@@ -32,7 +32,7 @@ def test_resolve_local_model_rejects_stale_qwen_alias() -> None:
         },
     }
 
-    def fetcher(base_url: str, timeout: float) -> list[str]:
+    def fetcher(base_url: str, _timeout: float) -> list[str]:
         assert base_url == "http://127.0.0.1:1234/v1"
         return ["google/gemma-4-e4b", "qwen2.5-coder-1.5b-instruct"]
 
