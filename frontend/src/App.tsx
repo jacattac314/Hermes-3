@@ -446,6 +446,11 @@ function App() {
     voiceModeRef.current = next;
     setVoiceMode(next);
     if (next) {
+      // Unlock Chrome TTS while still inside the user-gesture handler
+      if (window.speechSynthesis) {
+        const unlock = new SpeechSynthesisUtterance("");
+        window.speechSynthesis.speak(unlock);
+      }
       setVoiceState("Voice mode — speak now");
       startVoiceInput();
     } else {
@@ -990,7 +995,7 @@ function ChatView({
       </form>
       {voiceState && (
         <div className={`voice-status${isListening ? " listening" : ""}`}>
-          {isListening ? <MicOff size={14} /> : <Mic size={14} />}
+          <Mic size={14} />
           <span>{voiceState}</span>
         </div>
       )}
